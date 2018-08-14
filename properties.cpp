@@ -1,4 +1,3 @@
-#include "stdafx.h"
 #include "properties.h"
 /************************************************************************************************/
 ///*
@@ -30,43 +29,22 @@
 //*
 //*/
 /************************************************************************************************/
-static vector<string> vLine;
-static multimap<string,string> msKV;
-static bool mulremark = false;//多行注释开关
 
-CProperties::CProperties(){};
+CProperties::CProperties(){mulremark = false;};
 CProperties::~CProperties(){};
 
 PSTATUS CProperties::open(const char* path){
-	/**************************************************************/
-	//判断是否是文本文档 而不是文件夹 此代码存在问题一直hFind = 0xFFFFFFFF
-	//暂留 以便日后优化
-	//author：王邵华
-	//time：  20180404
-	/*WIN32_FIND_DATA fd; 
-	bool ret = true;
-	HANDLE hFind = FindFirstFile(LPCWSTR(path), &fd); 
-	if ((hFind != INVALID_HANDLE_VALUE) && !(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) 
-	{ 
-		ret = false;
-	}
-	FindClose(hFind); 
-	if (ret)
-	{
-		//文件属性不对
-		return IS_ERROR;
-	}*/
-	/**************************************************************/
+	
 	if (nullptr == path)
 	{
-		return IS_ERROR;
+		return IS_PROPERTIES_ERROR;
 	}
 	this->path = path;
 	ifstream ifs;
 	ifs.open(path,ios::in);
 	if (!ifs)
 	{
-		return IS_ERROR;//打开文件失败
+		return IS_PROPERTIES_ERROR;//打开文件失败
 	}
 	string sLine;
 	while(!ifs.eof()){
@@ -102,12 +80,12 @@ PSTATUS CProperties::open(const char* path){
 	{
 		ifs.close();
 	}
-	return IS_OK;
+	return IS_PROPERTIES_OK;
 }
 //实现文件加载到map中
 PSTATUS CProperties::load(){
 	string key,value;string sSubStr;
-	for (int i = 0;i<vLine.size();i++)
+	for (unsigned int i = 0;i<vLine.size();i++)
 	{
 		string::size_type pos = vLine.at(i).find_first_of("=");
 		if (pos == string::npos)
@@ -118,7 +96,7 @@ PSTATUS CProperties::load(){
 		value = vLine.at(i).substr(pos+1,vLine.at(i).size()-pos);
 		msKV.insert(make_pair(key,value));
 	}
-	return IS_OK;
+	return IS_PROPERTIES_OK;
 }
 
 void CProperties::print(){
@@ -151,23 +129,106 @@ vector<string> CProperties::read(const char *k){
 PSTATUS CProperties::write(const char *k,const char* v){
 	if (nullptr == k || nullptr == v)
 	{
-		return IS_ERROR; //校验入参
+		return IS_PROPERTIES_ERROR; //校验入参
 	}
 	ofstream ofs;
 	ofs.open(this->path.c_str(),ios::app);
 	if(!ofs)
 	{
-		return IS_ERROR;//打开文件失败
+		return IS_PROPERTIES_ERROR;//打开文件失败
 	}
 	char sStr[1024] = {};
-	sprintf(sStr,"%s=%s",k,v);
+	sprintf_s(sStr,1024,"%s=%s",k,v);
 	ofs<<endl<<sStr;
 	msKV.insert(make_pair(k,v));
 	if(ofs.is_open())
 	{
 		ofs.close();
 	}
-	return IS_OK;
+	return IS_PROPERTIES_OK;
+}
+
+PSTATUS CProperties::modify(const char *k,const char* v){
+	mulremark = false;
+	bool notexit = true;
+	//创建临时文件方式 临时文件命名tmp_properties_modify
+	ifstream ifs;
+	ifs.open(this->path,ios::in);
+	string temp="";
+	if (!ifs)
+	{
+		return IS_PROPERTIES_ERROR;//打开文件失败
+	}
+	string sLine;
+	char sStr[1024] = {};
+	sprintf_s(sStr,1024,"%s=",k);
+	char sModify[1024] = {};
+	sprintf_s(sModify,1024,"%s=%s",k,v);
+	while(!ifs.eof()){
+		sLine = "";
+		getline(ifs,sLine);
+		if (mulremark)//已打开多行注释开关 需判断该行有没有关闭开关
+		{
+			temp.append(sLine.c_str());
+			temp.append("\n");
+			if(sLine.find("*/") != string::npos){
+				//ofstemp<<sLine.c_str()<<endl;
+				mulremark = false;
+			}
+			continue;//无论开关是否关闭 继续读下一行数据
+		}else
+		{
+			string::size_type pos =sLine.find("/*");string sSubLine;
+			if (pos != string::npos)//改行有多行注释开关  需打开
+			{
+				string::size_type epos = sLine.rfind("*/");
+				mulremark = epos==string::npos || epos<pos?true:false;
+				sSubLine = sLine.substr(0,pos);
+			}else{
+				sSubLine = sLine;
+			}
+			trim(sSubLine);
+			if (sSubLine.length()<= 0) {temp.append(sLine.c_str());temp.append("\n");continue;}
+			if (sSubLine[0] == '#'){temp.append(sLine.c_str());temp.append("\n");continue;}
+			if (sSubLine[0] == '['){temp.append(sLine.c_str());temp.append("\n");continue;}
+			if (sSubLine.length()>2 && sSubLine[0] == '/' && sSubLine[1] == '/'){temp.append(sLine.c_str());temp.append("\n");continue;}
+			if (sSubLine.length()>4 && sSubLine[0] == '<' && sSubLine[1] == '!'){temp.append(sLine.c_str());temp.append("\n");continue;}
+
+			if (sSubLine.find(sStr) == string::npos){temp.append(sLine.c_str());temp.append("\n");continue;}
+			{
+				notexit = false;
+				temp.append(sModify);
+				if (pos!=string::npos)
+				{
+					temp.append(sLine.substr(pos,sLine.length()));
+				}
+				temp.append("\n");
+				continue;
+			}
+		}
+	}
+	if (notexit)
+	{
+		temp.append(sModify);
+	}
+	if (ifs.is_open())
+	{
+		ifs.close();
+	}
+	ofstream ofs;
+	ofs.open(this->path.c_str(),ios::trunc);
+	if(!ofs)
+	{
+		return IS_PROPERTIES_ERROR;//打开文件失败
+	}
+	ofs<<temp.c_str();
+	if (ofs.is_open())
+	{
+		ofs.close();
+	}
+	msKV.erase(k);
+	msKV.insert(make_pair(k,v));
+	return IS_PROPERTIES_OK;
 }
 
 /*
@@ -198,32 +259,50 @@ void CProperties::trim(string &s)
 	}
 }
 
-/*
 
-int _tmain1(int argc, _TCHAR* argv[])
+
+int main()
 {
 //########################################################//
 //read
 //1.创建对象open()文件
 //2.load()加载到内存中
-//3.read()读取相关key值的value
+//3.read()读取相关key值的value/write()追加写入key=value/modify()修改k=v0值为k=v
 //4.close()释放资源
-/*
+
 CProperties cprop;
-PSTATUS ret = cprop.open("D:\\job\\greatwall\\test\\bank.properties");
-if (ret != IS_OK)
+PSTATUS ret = cprop.open(".\\bank.properties");
+if (ret != IS_PROPERTIES_OK)
 {
 	cout<<"打开配置文件失败"<<endl;
 	getchar();
 	return 0;
 }
 cprop.load();
-vector<string> vec = cprop.read("key3");
+vector<string> vec = cprop.read("3");
 for (int i=0; i<vec.size();i++)
 {
 	cout<<vec[i].c_str()<<endl;
 }
-cprop.close();*/
+cout<<"-----------------------"<<endl;
+cprop.write("5","rtu");
+cprop.write("5","25wsd");
+vec = cprop.read("5");
+for (int i=0; i<vec.size();i++)
+{
+	cout<<vec[i].c_str()<<endl;
+}
+
+cprop.modify("3","中国开源");
+cout<<"-----------------------"<<endl;
+vec = cprop.read("5");
+for (int i=0; i<vec.size();i++)
+{
+	cout<<vec[i].c_str()<<endl;
+}
+cprop.close();
+getchar();
+}
 //########################################################//
 
 //########################################################//

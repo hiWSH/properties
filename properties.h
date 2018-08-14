@@ -12,12 +12,15 @@
 #include <windows.h>
 using namespace std;
 
-#define  IS_OK 1
-#define	 IS_ERROR 0
+#define  IS_PROPERTIES_OK 1
+#define	 IS_PROPERTIES_ERROR 0
 typedef  bool PSTATUS;
 class CProperties{
 private:
 	string path;
+	vector<string> vLine;
+	multimap<string,string> msKV;
+	bool mulremark;//多行注释开关
 protected:
 public:
 	CProperties();
@@ -30,9 +33,13 @@ public:
 	void close();
 	vector<string> read(const char *k);
 	PSTATUS write(const char *k,const char* v);
+	PSTATUS modify(const char *k,const char* v);
 	void trim_first(string &s);
 	void trim_end(string &s);
 	void trim(string &s);
 };
 
 #endif
+
+
+
